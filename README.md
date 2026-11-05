@@ -1,38 +1,29 @@
-# AniList Airing Alerts
+# AniList Discord Airing Radar
 
-This repository is dedicated to one task: checking the upcoming episodes in the AniList anime list for **Orewatokyo** and posting airing warnings to Discord.
+Hourly AniList airing alerts for **Orewatokyo**, delivered to Discord.
 
-## What it does
+## Features
+- Refreshes the AniList anime ID cache every 12 hours.
+- Uses AniList `airingSchedules` filtered to cached media IDs and the next 24 hours.
+- Sends 3-hour, 1-hour, and 30-minute reminders (the final 1-hour notice supersedes a missed 30-minute notice).
+- Batches up to 10 alert embeds per Discord webhook request.
+- Publishes one daily schedule board in India Standard Time and edits that message on later hourly runs.
+- Preserves existing `db_anime_airing.json` alert history and migrates legacy string statuses automatically.
+- Prunes history for anime removed from the AniList list and episodes more than three episodes behind the latest known airing.
+- Sends a GitHub Actions failure notification to Discord.
 
-- Checks AniList once every hour through GitHub Actions.
-- Sends a **3-hour warning** when an episode is between one and three hours away.
-- Sends a **final 1-hour warning** when an episode is within the next hour.
-- Includes the anime title, episode number, cover image, telecast time, and Discord countdown.
-- Remembers which warnings were already sent, so the same warning is not repeatedly posted.
-- Stores alert history in the existing database file.
-
-## Required GitHub secret
-
-In **Repository → Settings → Secrets and variables → Actions**, add:
-
-- **DISCORD_AIRING_WEBHOOK** — the Discord channel webhook URL.
-
-## Optional GitHub secret
-
-- **ANILIST_TARGET_TOKEN** — only needed when the AniList list requires authentication. The username is set to Orewatokyo in the workflow.
+## GitHub Actions secrets
+- `DISCORD_AIRING_WEBHOOK` — required Discord channel webhook.
+- `ANILIST_TARGET_TOKEN` — optional; only needed if the AniList list is not public.
 
 ## Schedule
+Runs every 15 minutes at minutes 7, 22, 37 and 52 UTC (`7,22,37,52 * * * *`). This is intentional: an hourly run cannot reliably deliver a 30-minute reminder. The daily schedule board uses Asia/Kolkata dates and times. GitHub scheduled workflows can be delayed during platform load.
 
-The workflow uses the cron schedule `0 * * * *`, which means once every hour. GitHub Actions scheduled runs can be delayed slightly during platform load; they are not guaranteed to start at the exact minute.
+## State files
+- `db_anime_airing.json` — sent alert history (existing file retained).
+- `airing_cache.json` — cached AniList media IDs, refreshed every 12 hours.
+- `daily_board.json` — Discord daily board message ID/date.
 
-Because GitHub Actions cron is in UTC, the hourly checks occur at approximately **:30 past each hour in India (IST)**.
+**Important:** When copying these files into the existing repository, do not overwrite or delete the existing `db_anime_airing.json`; the updated code reads and migrates its existing entries.
 
-You can also start a check manually from **Actions → AniList Airing Alerts → Run workflow**.
-
-## Files
-
-- `.github/workflows/airing_alerts.yml` — hourly schedule and state persistence.
-- `airing_alerts.py` — AniList lookup and Discord notification logic.
-- `db_anime_airing.json` — sent-alert history.
-- `requirements.txt` — Python dependency list.
-- `README.md` — project notes.
+Run manually from **Actions → AniList Airing Alerts → Run workflow**.

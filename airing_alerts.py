@@ -1,255 +1,179 @@
 #!/usr/bin/env python3
-"""Hourly AniList airing alerts for Discord."""
-
-import json
-import logging
-import os
-import time
+"""Cached AniList airing radar with batched Discord alerts and a daily board."""
+import json, logging, os, time
+from datetime import datetime, timedelta
 from pathlib import Path
-
+from zoneinfo import ZoneInfo
 import requests
 
 API = "https://graphql.anilist.co"
 USERNAME = os.getenv("ANILIST_USERNAME", "Orewatokyo").strip()
 TOKEN = os.getenv("ANILIST_TARGET_TOKEN", "").strip()
 WEBHOOK = os.getenv("DISCORD_AIRING_WEBHOOK", "").strip()
-STATE_FILE = Path("db_anime_airing.json")
-TIMEOUT = 25
-RETRIES = 4
+ALERT_FILE, CACHE_FILE, BOARD_FILE = map(Path, ("db_anime_airing.json", "airing_cache.json", "daily_board.json"))
+IST = ZoneInfo("Asia/Kolkata")
+CACHE_TTL, TIMEOUT, RETRIES = 12 * 3600, 20, 4
 
-QUERY = """
-query ($userName: String, $page: Int) {
-  Page(page: $page, perPage: 50) {
-    pageInfo { hasNextPage }
-    mediaList(userName: $userName, type: ANIME, sort: [UPDATED_TIME_DESC]) {
-      mediaId
-      media {
-        id
-        type
-        title { romaji english }
-        coverImage { extraLarge color }
-        nextAiringEpisode { airingAt episode }
-      }
-    }
-  }
-}
-"""
+LIST_QUERY = '''query ($name: String, $page: Int) { Page(page:$page,perPage:50) { pageInfo { hasNextPage } mediaList(userName:$name,type:ANIME) { mediaId } } }'''
+AIRING_QUERY = '''query ($page:Int,$ids:[Int],$from:Int,$to:Int) { Page(page:$page,perPage:50) { pageInfo { hasNextPage } airingSchedules(mediaId_in:$ids,airingAt_greater:$from,airingAt_lesser:$to,sort:TIME) { id airingAt episode media { id title { romaji english } coverImage { extraLarge color } } } } }'''
 
 
-def load_state():
-    if not STATE_FILE.exists():
-        return {}
-    with STATE_FILE.open(encoding="utf-8") as stream:
-        state = json.load(stream)
-    if not isinstance(state, dict):
-        raise ValueError(f"{STATE_FILE} must contain a JSON object")
-    return state
+def read_json(path, default):
+    if not path.exists(): return default
+    try:
+        with path.open(encoding="utf-8") as stream: value = json.load(stream)
+        return value if isinstance(value, type(default)) else default
+    except (OSError, ValueError):
+        logging.exception("Could not read %s", path)
+        raise
 
 
-def save_state(state):
-    temp = STATE_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(state, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
-    temp.replace(STATE_FILE)
+def write_json(path, value):
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
-def anilist_session():
-    session = requests.Session()
-    session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
-    if TOKEN:
-        session.headers["Authorization"] = f"Bearer {TOKEN}"
-    return session
+HTTP = requests.Session()
+HTTP.headers.update({"Accept":"application/json", "Content-Type":"application/json"})
+if TOKEN: HTTP.headers["Authorization"] = f"Bearer {TOKEN}"
 
 
-def graphql(session, page):
-    payload = {"query": QUERY, "variables": {"userName": USERNAME, "page": page}}
+def graphql(query, variables):
     for attempt in range(RETRIES):
-        try:
-            response = session.post(API, json=payload, timeout=TIMEOUT)
-        except requests.RequestException as error:
-            if attempt == RETRIES - 1:
-                raise RuntimeError(f"AniList request failed: {error}") from error
-            time.sleep(min(2 ** attempt, 20))
-            continue
-
+        try: response = HTTP.post(API, json={"query":query,"variables":variables}, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            if attempt == RETRIES - 1: raise RuntimeError(f"AniList network error: {exc}") from exc
+            time.sleep(min(2 ** attempt, 16)); continue
         if response.status_code == 200:
             body = response.json()
-            if body.get("errors"):
-                raise RuntimeError(f"AniList GraphQL error: {body['errors']}")
-            return body
+            if body.get("errors"): raise RuntimeError(f"AniList GraphQL error: {body['errors']}")
+            return body.get("data") or {}
         if response.status_code == 429 or response.status_code >= 500:
-            try:
-                delay = max(float(response.headers.get("Retry-After", 0)), min(2 ** attempt, 20))
-            except (TypeError, ValueError):
-                delay = min(2 ** attempt, 20)
-            logging.warning("AniList returned %s; retrying in %.1fs", response.status_code, delay)
-            time.sleep(delay)
-            continue
+            try: delay = max(float(response.headers.get("Retry-After", 0)), min(2 ** attempt, 20))
+            except (TypeError, ValueError): delay = min(2 ** attempt, 20)
+            time.sleep(delay); continue
         response.raise_for_status()
-    raise RuntimeError("AniList request failed after all retries")
+    raise RuntimeError("AniList request exhausted retries")
 
 
-def fetch_airings():
-    session = anilist_session()
-    page = 1
-    results = []
+def get_media_ids(now):
+    cache = read_json(CACHE_FILE, {})
+    if cache.get("username") == USERNAME and now - int(cache.get("updated_at", 0)) < CACHE_TTL and cache.get("media_ids"):
+        ids = sorted(set(map(int, cache["media_ids"])))
+        logging.info("Using cached anime IDs: %d", len(ids)); return ids
+    ids, page = [], 1
     while True:
-        page_data = graphql(session, page).get("data", {}).get("Page") or {}
-        for entry in page_data.get("mediaList") or []:
-            media = entry.get("media") or {}
-            if media.get("type") != "ANIME":
-                continue
-            next_ep = media.get("nextAiringEpisode") or {}
-            try:
-                media_id = int(entry.get("mediaId") or media["id"])
-                episode = int(next_ep["episode"])
-                airing_at = int(next_ep["airingAt"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            titles = media.get("title") or {}
-            cover = media.get("coverImage") or {}
-            title = titles.get("english") or titles.get("romaji") or f"Anime {media_id}"
-            results.append({
-                "media_id": media_id,
-                "title": title,
-                "romaji": titles.get("romaji") or title,
-                "episode": episode,
-                "airing_at": airing_at,
-                "cover": cover.get("extraLarge"),
-                "color": cover.get("color"),
-            })
-        if not (page_data.get("pageInfo") or {}).get("hasNextPage"):
-            break
+        data = graphql(LIST_QUERY, {"name":USERNAME,"page":page}).get("Page") or {}
+        ids.extend(int(x["mediaId"]) for x in data.get("mediaList",[]) if x.get("mediaId"))
+        if not (data.get("pageInfo") or {}).get("hasNextPage"): break
         page += 1
-        time.sleep(1)
-    results.sort(key=lambda item: item["airing_at"])
-    logging.info("Found %d upcoming anime airings across %d page(s)", len(results), page)
-    return results
+    ids = sorted(set(ids))
+    if not ids: raise RuntimeError(f"AniList returned no anime IDs for {USERNAME}")
+    write_json(CACHE_FILE, {"username":USERNAME,"updated_at":now,"media_ids":ids})
+    logging.info("Refreshed anime ID cache: %d", len(ids)); return ids
 
 
-def discord_send(airing, alert_type):
-    """Send a compact, branded Discord embed for one airing alert."""
-    is_final = alert_type == "1h"
-    alert_label = "FINAL COUNTDOWN" if is_final else "AIRING SOON"
-    accent_color = 0xED4245 if is_final else 0x5865F2
+def get_airings(ids, start, end):
+    found = {}
+    for offset in range(0, len(ids), 500):
+        page, batch = 1, ids[offset:offset+500]
+        while True:
+            data = graphql(AIRING_QUERY, {"page":page,"ids":batch,"from":start,"to":end}).get("Page") or {}
+            for item in data.get("airingSchedules",[]):
+                media = item.get("media") or {}; title = media.get("title") or {}; cover = media.get("coverImage") or {}
+                mid = int(media.get("id") or 0)
+                if not mid: continue
+                name = title.get("english") or title.get("romaji") or f"Anime {mid}"
+                airing = {"media_id":mid,"title":name,"romaji":title.get("romaji") or name,"episode":int(item["episode"]),"airing_at":int(item["airingAt"]),"cover":cover.get("extraLarge"),"color":cover.get("color")}
+                found[(mid,airing["episode"])] = airing
+            if not (data.get("pageInfo") or {}).get("hasNextPage"): break
+            page += 1
+    return sorted(found.values(), key=lambda x:x["airing_at"])
 
-    title = str(airing.get("title") or "Upcoming Anime")[:256]
-    romaji = str(airing.get("romaji") or title)[:1024]
-    episode = int(airing["episode"])
-    airing_at = int(airing["airing_at"])
-    media_id = int(airing["media_id"])
 
-    embed = {
-        "author": {
-            "name": f"📡 TOKYO'S AIRING RADAR  /  {alert_label}",
-        },
-        "title": title,
-        "url": f"https://anilist.co/anime/{media_id}/",
-        "description": (
-            f"**EPISODE {episode}**\n"
-            f"*{romaji}*\n\n"
-            f"⏳ **Airs <t:{airing_at}:R>**"
-        ),
-        "color": accent_color,
-        "fields": [
-            {
-                "name": "🗓️ BROADCAST TIME",
-                "value": f"<t:{airing_at}:F>",
-                "inline": True,
-            },
-            {
-                "name": "🔔 NOTICE",
-                "value": "Final 1-hour reminder" if is_final else "3-hour heads-up",
-                "inline": True,
-            },
-        ],
-        "footer": {
-            "text": "ANILIST  •  AUTOMATIC AIRING TRACKER",
-        },
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-
-    if airing.get("cover"):
-        embed["thumbnail"] = {"url": airing["cover"]}
-
+def webhook_request(method, url, payload):
     for attempt in range(RETRIES):
-        try:
-            response = requests.post(WEBHOOK, json={"embeds": [embed]}, timeout=TIMEOUT)
-        except requests.RequestException as error:
-            if attempt == RETRIES - 1:
-                logging.error("Discord delivery failed for %s: %s", title, error)
-                return False
-            time.sleep(min(2 ** attempt, 20))
-            continue
-
-        if response.status_code in (200, 201, 204):
-            logging.info(
-                "Sent %s alert: %s episode %s",
-                alert_type,
-                title,
-                episode,
-            )
-            return True
-
+        try: response = HTTP.request(method, url, json=payload, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            if attempt == RETRIES-1: logging.error("Discord request failed: %s",exc); return None
+            time.sleep(min(2**attempt,16)); continue
+        if response.status_code in (200,201):
+            try: return response.json()
+            except ValueError: return {}
+        if response.status_code == 204: return {}
         if response.status_code == 429 or response.status_code >= 500:
-            try:
-                delay = max(
-                    float(response.headers.get("Retry-After", 0)),
-                    min(2 ** attempt, 20),
-                )
-            except (TypeError, ValueError):
-                delay = min(2 ** attempt, 20)
-            time.sleep(delay)
-            continue
-
-        logging.error(
-            "Discord rejected alert (%s): %s",
-            response.status_code,
-            response.text[:500],
-        )
-        return False
-
-    logging.error("Discord delivery failed after retries for %s", title)
-    return False
+            try: delay=max(float(response.headers.get("Retry-After",0)),float(response.json().get("retry_after",0)))
+            except (ValueError,TypeError): delay=min(2**attempt,16)
+            time.sleep(max(delay,min(2**attempt,16))); continue
+        logging.error("Discord HTTP %s: %s",response.status_code,response.text[:300]); return None
+    return None
 
 
-def check_alerts(airings, state, now):
-    sent = failed = 0
-    changed = False
-    for airing in airings:
-        remaining = airing["airing_at"] - now
-        if remaining <= 0:
-            continue
-        key = f"{airing['media_id']}_ep{airing['episode']}"
-        status = state.get(key, "none")
-        alert = None
-        if 3600 < remaining <= 10800 and status == "none":
-            alert = "3h"
-        elif 0 < remaining <= 3600 and status in ("none", "3h"):
-            alert = "1h"
-        if not alert:
-            continue
-        if discord_send(airing, alert):
-            state[key] = alert
-            sent += 1
-            changed = True
-        else:
-            failed += 1
-    if changed:
-        save_state(state)
-    return sent, failed
+def alert_embed(a, kind):
+    labels={"3h":"AIRING SOON","30m":"30-MINUTE WARNING","1h":"FINAL COUNTDOWN"}
+    colors={"3h":0x5865F2,"30m":0xF0B232,"1h":0xED4245}; stamp=a["airing_at"]
+    embed={"author":{"name":f"📡 TOKYO'S AIRING RADAR / {labels[kind]}"},"title":a["title"][:256],"url":f"https://anilist.co/anime/{a['media_id']}/","description":f"**EPISODE {a['episode']}**\n*{a['romaji']}*\n\n⏳ **Airs <t:{stamp}:R>**","color":colors[kind],"fields":[{"name":"🗓️ BROADCAST","value":f"<t:{stamp}:F>","inline":True},{"name":"🔔 REMINDER","value":labels[kind],"inline":True}],"footer":{"text":"ANILIST • AUTOMATIC AIRING TRACKER"}}
+    if a.get("cover"): embed["thumbnail"]={"url":a["cover"]}
+    return embed
+
+
+def send_due_alerts(airings, state, now):
+    pending=[]
+    for a in airings:
+        left=a["airing_at"]-now
+        if left <= 0: continue
+        key=f"{a['media_id']}_ep{a['episode']}"; old=state.get(key,[])
+        if isinstance(old,str): old=[old]
+        # Final one-hour notice supersedes the 30-minute notice if a run was delayed.
+        kind = "1h" if left <= 3600 and "1h" not in old else ("30m" if left <= 1800 and "30m" not in old else ("3h" if left <= 10800 and left > 3600 and "3h" not in old else None))
+        if kind: pending.append((key,kind,alert_embed(a,kind)))
+    sent=0
+    for i in range(0,len(pending),10):
+        group=pending[i:i+10]
+        result=webhook_request("POST",WEBHOOK+"?wait=true",{"embeds":[x[2] for x in group]})
+        if result is None: continue
+        for key,kind,_ in group:
+            old=state.get(key,[]); old=[old] if isinstance(old,str) else old
+            state[key]=sorted(set(old+[kind])); sent+=1
+    return sent
+
+
+def update_daily_board(airings, now):
+    local=datetime.fromtimestamp(now,IST); start=local.replace(hour=0,minute=0,second=0,microsecond=0); end=(start+timedelta(days=1))
+    todays=[a for a in airings if start.timestamp() <= a["airing_at"] < end.timestamp()]
+    lines=[f"**<t:{a['airing_at']}:t>** • [{a['title'][:90]}](https://anilist.co/anime/{a['media_id']}/) — Ep. **{a['episode']}**" for a in todays[:35]]
+    if len(todays)>35: lines.append(f"…and {len(todays)-35} more.")
+    embed={"author":{"name":"📅 TOKYO'S DAILY AIRING BOARD"},"title":local.strftime("%A • %d %B %Y"),"description":("\n".join(lines) if lines else "No upcoming episodes are listed for today. Enjoy your anime-free hours! 🍵")[:4000],"color":0x2ECC71,"footer":{"text":f"{len(todays)} episode(s) • AniList • Times shown in India (IST)"}}
+    if todays and todays[0].get("cover"): embed["thumbnail"]={"url":todays[0]["cover"]}
+    state=read_json(BOARD_FILE,{})
+    if state.get("date")==local.date().isoformat() and state.get("message_id"):
+        result=webhook_request("PATCH",WEBHOOK.rstrip("/")+f"/messages/{state['message_id']}",{"embeds":[embed]})
+        if result is not None: return
+    result=webhook_request("POST",WEBHOOK+"?wait=true",{"embeds":[embed]})
+    if result and result.get("id"): write_json(BOARD_FILE,{"date":local.date().isoformat(),"message_id":str(result["id"])})
+
+
+def prune_history(state, ids, airings):
+    active=set(ids); newest={}
+    for a in airings: newest[a["media_id"]]=max(newest.get(a["media_id"],0),a["episode"])
+    removed=0
+    for key in list(state):
+        try: mid,ep=key.split("_ep",1); mid,ep=int(mid),int(ep)
+        except (ValueError,AttributeError): continue
+        if mid not in active or (mid in newest and ep < newest[mid]-3): del state[key]; removed+=1
+    if removed: logging.info("Removed %d stale alert-history entries",removed)
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s UTC | %(levelname)s | %(message)s")
-    if not USERNAME:
-        raise RuntimeError("ANILIST_USERNAME is empty")
-    if not WEBHOOK:
-        raise RuntimeError("Missing required GitHub Actions secret: DISCORD_AIRING_WEBHOOK")
-    state = load_state()
-    airings = fetch_airings()
-    sent, failed = check_alerts(airings, state, int(time.time()))
-    logging.info("Check complete: %d alert(s) sent, %d delivery failure(s)", sent, failed)
+    logging.basicConfig(level=logging.INFO,format="%(asctime)s UTC | %(levelname)s | %(message)s")
+    if not USERNAME or not WEBHOOK: raise RuntimeError("Missing AniList username or DISCORD_AIRING_WEBHOOK secret")
+    now=int(time.time()); ids=get_media_ids(now); airings=get_airings(ids,now-60,now+24*3600)
+    history=read_json(ALERT_FILE,{})
+    prune_history(history,ids,airings)
+    sent=send_due_alerts(airings,history,now)
+    write_json(ALERT_FILE,history)
+    update_daily_board(airings,now)
+    logging.info("HEALTH OK | tracked=%d | next-24h=%d | alerts-sent=%d",len(ids),len(airings),sent)
 
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
