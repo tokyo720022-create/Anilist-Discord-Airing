@@ -127,30 +127,47 @@ def fetch_airings():
 
 
 def discord_send(airing, alert_type):
-    warning = "3-HOUR" if alert_type == "3h" else "FINAL 1-HOUR"
-    color = 0x5865F2
-    raw_color = str(airing.get("color") or "").lstrip("#")
-    if len(raw_color) == 6:
-        try:
-            color = int(raw_color, 16)
-        except ValueError:
-            pass
+    """Send a compact, branded Discord embed for one airing alert."""
+    is_final = alert_type == "1h"
+    alert_label = "FINAL COUNTDOWN" if is_final else "AIRING SOON"
+    accent_color = 0xED4245 if is_final else 0x5865F2
+
+    title = str(airing.get("title") or "Upcoming Anime")[:256]
+    romaji = str(airing.get("romaji") or title)[:1024]
+    episode = int(airing["episode"])
+    airing_at = int(airing["airing_at"])
+    media_id = int(airing["media_id"])
 
     embed = {
-        "title": f"{'🕒' if alert_type == '3h' else '🚨'} {warning} AIRING WARNING · Episode {airing['episode']}"[:256],
+        "author": {
+            "name": f"📡 TOKYO'S AIRING RADAR  /  {alert_label}",
+        },
+        "title": title,
+        "url": f"https://anilist.co/anime/{media_id}/",
         "description": (
-            f"**{airing['title']}**\n"
-            f"Episode **{airing['episode']}** is scheduled to air <t:{airing['airing_at']}:R>."
+            f"**EPISODE {episode}**\n"
+            f"*{romaji}*\n\n"
+            f"⏳ **Airs <t:{airing_at}:R>**"
         ),
-        "color": color,
+        "color": accent_color,
         "fields": [
-            {"name": "🇯🇵 Romaji", "value": str(airing["romaji"])[:1024], "inline": False},
-            {"name": "📺 Telecast Time", "value": f"<t:{airing['airing_at']}:F>", "inline": False},
-            {"name": "⏳ Countdown", "value": f"<t:{airing['airing_at']}:R>", "inline": True},
+            {
+                "name": "🗓️ BROADCAST TIME",
+                "value": f"<t:{airing_at}:F>",
+                "inline": True,
+            },
+            {
+                "name": "🔔 NOTICE",
+                "value": "Final 1-hour reminder" if is_final else "3-hour heads-up",
+                "inline": True,
+            },
         ],
-        "footer": {"text": "AniList · Hourly Airing Monitor"},
+        "footer": {
+            "text": "ANILIST  •  AUTOMATIC AIRING TRACKER",
+        },
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+
     if airing.get("cover"):
         embed["thumbnail"] = {"url": airing["cover"]}
 
@@ -159,23 +176,39 @@ def discord_send(airing, alert_type):
             response = requests.post(WEBHOOK, json={"embeds": [embed]}, timeout=TIMEOUT)
         except requests.RequestException as error:
             if attempt == RETRIES - 1:
-                logging.error("Discord delivery failed for %s: %s", airing["title"], error)
+                logging.error("Discord delivery failed for %s: %s", title, error)
                 return False
             time.sleep(min(2 ** attempt, 20))
             continue
+
         if response.status_code in (200, 201, 204):
-            logging.info("Sent %s alert: %s episode %s", alert_type, airing["title"], airing["episode"])
+            logging.info(
+                "Sent %s alert: %s episode %s",
+                alert_type,
+                title,
+                episode,
+            )
             return True
+
         if response.status_code == 429 or response.status_code >= 500:
             try:
-                delay = max(float(response.headers.get("Retry-After", 0)), min(2 ** attempt, 20))
+                delay = max(
+                    float(response.headers.get("Retry-After", 0)),
+                    min(2 ** attempt, 20),
+                )
             except (TypeError, ValueError):
                 delay = min(2 ** attempt, 20)
             time.sleep(delay)
             continue
-        logging.error("Discord rejected alert (%s): %s", response.status_code, response.text[:500])
+
+        logging.error(
+            "Discord rejected alert (%s): %s",
+            response.status_code,
+            response.text[:500],
+        )
         return False
-    logging.error("Discord delivery failed after retries for %s", airing["title"])
+
+    logging.error("Discord delivery failed after retries for %s", title)
     return False
 
 
