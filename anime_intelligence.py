@@ -314,6 +314,7 @@ def weekly_report_embed(stats: dict[str, Any], week_key: str) -> dict[str, Any]:
             {"name": "Categories", "value": f"⭐ Favourite: {categories.get('favourite', 0)}\n▶️ Watching: {categories.get('watching', 0)}\n🔕 Muted: {categories.get('muted', 0)}\n📚 Other: {categories.get('other', 0)}", "inline": True},
             {"name": "AniList statuses", "value": "\n".join(f"{name.title()}: {count}" for name, count in statuses.items())[:1024] or "No list entries", "inline": True},
             {"name": "Schedule intelligence (7d)", "value": f"Delays: {events.get('delay', 0)}\nMoved earlier: {events.get('moved_earlier', 0)}\nReplaced: {events.get('schedule_replaced', 0)}\nMissing: {events.get('missing', 0)}\nRestored: {events.get('restored', 0)}", "inline": True},
+            {"name": "Delivery & API health", "value": f"Discord errors (total): {stats.get('delivery_health', {}).get('discord_errors', 0)}\nAniList errors (total): {stats.get('delivery_health', {}).get('anilist_errors', 0)}\nReminders delivered: {stats.get('delivery_health', {}).get('reminders_sent', 0)}\nSchedule events delivered: {stats.get('delivery_health', {}).get('intelligence_events_sent', 0)}", "inline": False},
         ],
         "footer": {"text": "Tokyo Airing Radar • AniList • Asia/Kolkata"},
     }

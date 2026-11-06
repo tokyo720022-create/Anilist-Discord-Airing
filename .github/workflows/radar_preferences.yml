@@ -1,0 +1,59 @@
+name: Tokyo Airing Radar Preferences
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What preference do you want to change?
+        required: true
+        type: choice
+        options:
+          - add_favourite
+          - remove_favourite
+          - add_muted
+          - remove_muted
+          - set_status_filter
+          - reset_status_filter
+      media_id:
+        description: AniList anime media ID (required for favourite/mute actions)
+        required: false
+        type: string
+      list_status_filter:
+        description: Comma-separated statuses for set_status_filter (e.g. CURRENT,PLANNING,COMPLETED)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update-preferences:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply preference form
+        env:
+          PREFERENCE_ACTION: ${{ inputs.action }}
+          MEDIA_ID: ${{ inputs.media_id }}
+          LIST_STATUSES: ${{ inputs.list_status_filter }}
+        run: python manage_preferences.py
+      - name: Save preference changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add anime_preferences.json
+          if git diff --cached --quiet; then
+            echo "No preference changes to save."
+            exit 0
+          fi
+          git commit -m "chore: update anime notification preferences [skip ci]"
+          git push origin HEAD:main

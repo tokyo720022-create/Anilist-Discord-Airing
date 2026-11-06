@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile Python files
-        run: python -m py_compile airing_alerts.py anime_intelligence.py
+        run: python -m py_compile airing_alerts.py anime_intelligence.py radar_v22.py manage_preferences.py
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
