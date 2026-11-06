@@ -1,6 +1,6 @@
 {
   "latest_snapshot": {
-    "generated_at": 1793950234,
+    "generated_at": 1793950866,
     "list_anime": 831,
     "tracked_anime": 831,
     "status_counts": {
@@ -27,5 +27,5 @@
       "restored": 0
     }
   },
-  "updated_at": 1793950234
+  "updated_at": 1793950866
 }
