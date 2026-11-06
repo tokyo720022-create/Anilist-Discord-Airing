@@ -3,11 +3,11 @@
   "favourite_media_ids": [],
   "muted_media_ids": [],
   "list_status_filter": [
-    "CURRENT",
-    "PLANNING",
     "COMPLETED",
+    "CURRENT",
     "DROPPED",
     "PAUSED",
+    "PLANNING",
     "REPEATING"
   ]
 }
