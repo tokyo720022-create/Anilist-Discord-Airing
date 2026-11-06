@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "favourite_media_ids": [],
+  "muted_media_ids": [],
+  "list_status_filter": [
+    "CURRENT",
+    "PLANNING",
+    "COMPLETED",
+    "DROPPED",
+    "PAUSED",
+    "REPEATING"
+  ]
+}

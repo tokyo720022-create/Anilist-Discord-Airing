@@ -1,10 +1,14 @@
-name: AniList Airing Alerts
+name: Tokyo Airing Radar
 
 on:
   schedule:
-    # Minute 17 avoids the busiest top-of-hour queue; every hour.
+    # Every 15 minutes to support the 3h / 1h / 30m reminder windows.
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -14,7 +18,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m py_compile airing_alerts.py anime_intelligence.py
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
   airing-alerts:
+    needs: tests
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -22,42 +45,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements.txt
-
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-
-      - name: Validate Python syntax
-        run: python -m py_compile airing_alerts.py
-
       - name: Run airing radar
         env:
           ANILIST_USERNAME: Orewatokyo
           ANILIST_TARGET_TOKEN: ${{ secrets.ANILIST_TARGET_TOKEN }}
           DISCORD_AIRING_WEBHOOK: ${{ secrets.DISCORD_AIRING_WEBHOOK }}
         run: python -u airing_alerts.py
-
-      - name: Save alert history, cache and board state
+      - name: Save alert history, cache, board and intelligence state
         if: success()
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add db_anime_airing.json airing_cache.json daily_board.json
+          git add db_anime_airing.json airing_cache.json daily_board.json anime_preferences.json schedule_history.json anime_stats.json
           if git diff --cached --quiet; then
             echo "No state changes."
             exit 0
           fi
           git commit -m "chore: update airing radar state [skip ci]"
           git push origin HEAD:main
-
       - name: Send failure notification
         if: failure()
         env:
