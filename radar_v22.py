@@ -69,12 +69,14 @@ def morning_digest_embed(
     missed_reminders: int,
     start_at: int,
     end_at: int,
+    upcoming_today: list[dict[str, Any]] | None = None,
+    schedule_changes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build one compact morning catch-up summary for the inactive period."""
+    """Build one catch-up summary with overnight airings, today's schedule and observed changes."""
     start = datetime.fromtimestamp(start_at, IST)
     end = datetime.fromtimestamp(end_at, IST)
     if not items:
-        description = "Nothing from your tracked schedule was recorded as airing during the break. Your normal radar checks are back online."
+        description = "Nothing from your tracked schedule was recorded as airing during the break."
     else:
         lines = []
         for item in items[:16]:
@@ -87,6 +89,25 @@ def morning_digest_embed(
         if len(items) > 16:
             lines.append(f"…and {len(items) - 16} more episodes.")
         description = "\n".join(lines)
+
+    upcoming_today = upcoming_today or []
+    changes = schedule_changes or []
+    today_lines = [
+        f"<t:{int(item['airing_at'])}:t> · [{str(item['title'])[:65]}](https://anilist.co/anime/{int(item['media_id'])}/) · Ep. {int(item['episode'])}"
+        for item in sorted(upcoming_today, key=lambda row: int(row["airing_at"]))[:6]
+    ]
+    if len(upcoming_today) > 6:
+        today_lines.append(f"…plus {len(upcoming_today) - 6} more today.")
+    if not today_lines:
+        today_lines = ["No more tracked episodes scheduled today."]
+    change_lines = [
+        f"• {str(event.get('title', 'Anime'))[:60]} · Ep. {event.get('episode', '?')} — {str(event.get('type', 'schedule update')).replace('_', ' ')}"
+        for event in changes[:5]
+    ]
+    if len(changes) > 5:
+        change_lines.append(f"…and {len(changes) - 5} more changes.")
+    if not change_lines:
+        change_lines = ["No schedule changes detected during this check."]
     return {
         "author": {"name": "🌅 TOKYO AIRING RADAR / MORNING CATCH-UP"},
         "title": f"Overnight digest · {end.strftime('%A, %d %B')}",
@@ -96,10 +117,11 @@ def morning_digest_embed(
             {"name": "REST PERIOD", "value": f"<t:{int(start_at)}:t> → <t:{int(end_at)}:t> IST", "inline": True},
             {"name": "EPISODES AIRED", "value": str(len(items)), "inline": True},
             {"name": "MISSED REMINDERS", "value": str(missed_reminders), "inline": True},
+            {"name": "UP NEXT TODAY", "value": "\n".join(today_lines)[:1024], "inline": False},
+            {"name": "SCHEDULE CHANGES", "value": "\n".join(change_lines)[:1024], "inline": False},
         ],
         "footer": {"text": "Overnight recap from saved AniList schedules • Asia/Kolkata"},
     }
-
 
 def weekly_calendar_embed(airings: list[dict[str, Any]], now: int, days: int = 7) -> dict[str, Any]:
     """Create a seven-day, India-time schedule grouped by day."""

@@ -380,11 +380,24 @@ def send_morning_catchup(stats_state: dict, schedule_history: dict, alert_histor
         items, missed = collect_overnight_airings(
             schedule_history, alert_history, last_successful_run, now, current_airings=current_airings
         )
+        local_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        upcoming_today = [
+            item for item in current_airings
+            if now < int(item["airing_at"]) < int((local_start + timedelta(days=1)).timestamp())
+        ]
+        changes = [
+            event for event in schedule_history.get("pending_events", [])
+            if isinstance(event, dict)
+            and last_successful_run <= int(event.get("created_at", 0) or 0) <= now
+        ]
         pending = {
             "date": local.date().isoformat(),
             "from_at": int(last_successful_run),
             "to_at": int(now),
-            "embed": morning_digest_embed(items, missed, last_successful_run, now),
+            "embed": morning_digest_embed(
+                items, missed, last_successful_run, now,
+                upcoming_today=upcoming_today, schedule_changes=changes,
+            ),
         }
         stats_state["pending_morning_digest"] = pending
         logging.info("Prepared morning catch-up: %d overnight episodes, %d without recorded reminders", len(items), missed)
@@ -471,7 +484,10 @@ def main():
     alert_history = read_json(ALERT_FILE, {})
     schedule_history = normalize_schedule_history(read_json(SCHEDULE_HISTORY_FILE, {}))
 
-    # Morning catch-up is prepared from last night's saved schedule snapshot before it is refreshed.
+    # Compare last night's snapshot with today's AniList feed before preparing the recap.
+    schedule_history = observe_schedules(schedule_history, airings, now)
+
+    # Morning catch-up uses the persisted pre-break times plus the refreshed schedule.
     morning_digest_sent = send_morning_catchup(
         stats_state, schedule_history, alert_history, now, last_successful_run, airings
     )
@@ -480,7 +496,6 @@ def main():
     reminders_sent = send_due_alerts(airings, alert_history, now)
     write_json(ALERT_FILE, alert_history)
 
-    schedule_history = observe_schedules(schedule_history, airings, now)
     events_sent = send_pending_intelligence_events(schedule_history)
     write_json(SCHEDULE_HISTORY_FILE, schedule_history)
 
