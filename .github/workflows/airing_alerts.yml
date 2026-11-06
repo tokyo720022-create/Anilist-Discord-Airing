@@ -25,6 +25,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Show workflow trigger details
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_EXPRESSION: ${{ github.event.schedule }}
+          REF_NAME: ${{ github.ref }}
+        run: |
+          echo "Workflow event: ${EVENT_NAME}"
+          echo "Workflow ref: ${REF_NAME}"
+          echo "Scheduled expression: ${SCHEDULE_EXPRESSION:-not a scheduled run}"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Python
