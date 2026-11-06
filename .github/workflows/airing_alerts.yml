@@ -2,11 +2,10 @@ name: Tokyo Airing Radar
 
 on:
   schedule:
-    # Active every 15 minutes from 10:00 AM through 9:45 PM India time.
-    # IST is UTC+5:30. The engine remains idle from 10:00 PM to 10:00 AM IST.
-    - cron: '30,45 4 * * *'
-    - cron: '*/15 5-15 * * *'
-    - cron: '0,15 16 * * *'
+    # Use GitHub's timezone-aware schedule for India Standard Time.
+    # Every 15 minutes from 10:00 AM through 9:45 PM IST.
+    - cron: '*/15 10-21 * * *'
+      timezone: 'Asia/Kolkata'
   workflow_dispatch:
   push:
     branches: [main]
