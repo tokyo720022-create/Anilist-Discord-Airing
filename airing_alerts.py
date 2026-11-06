@@ -25,6 +25,24 @@ from anime_intelligence import (
     weekly_report_embed,
     weekly_report_key,
 )
+from radar_v22 import (
+    collect_overnight_airings,
+    morning_digest_embed,
+    weekly_calendar_due,
+    weekly_calendar_embed,
+    weekly_calendar_key,
+    update_delivery_analytics,
+)
+
+RUN_METRICS = {
+    "anilist_requests": 0,
+    "anilist_errors": 0,
+    "anilist_retries": 0,
+    "discord_requests": 0,
+    "discord_successes": 0,
+    "discord_errors": 0,
+    "discord_retries": 0,
+}
 
 API = "https://graphql.anilist.co"
 USERNAME = os.getenv("ANILIST_USERNAME", "Orewatokyo").strip()
@@ -66,19 +84,27 @@ if TOKEN:
 
 def graphql(query: str, variables: dict):
     for attempt in range(RETRIES):
+        RUN_METRICS["anilist_requests"] += 1
         try:
             response = HTTP.post(API, json={"query": query, "variables": variables}, timeout=TIMEOUT)
         except requests.RequestException as exc:
+            RUN_METRICS["anilist_errors"] += 1
             if attempt == RETRIES - 1:
                 raise RuntimeError(f"AniList network error: {exc}") from exc
+            if attempt < RETRIES - 1:
+                RUN_METRICS["anilist_retries"] += 1
             time.sleep(min(2 ** attempt, 16))
             continue
         if response.status_code == 200:
             body = response.json()
             if body.get("errors"):
+                RUN_METRICS["anilist_errors"] += 1
                 raise RuntimeError(f"AniList GraphQL error: {body['errors']}")
             return body.get("data") or {}
+        RUN_METRICS["anilist_errors"] += 1
         if response.status_code == 429 or response.status_code >= 500:
+            if attempt < RETRIES - 1:
+                RUN_METRICS["anilist_retries"] += 1
             try:
                 delay = max(float(response.headers.get("Retry-After", 0)), min(2 ** attempt, 20))
             except (TypeError, ValueError):
@@ -87,7 +113,6 @@ def graphql(query: str, variables: dict):
             continue
         response.raise_for_status()
     raise RuntimeError("AniList request exhausted retries")
-
 
 def get_media_entries(now: int) -> dict[int, str]:
     """Return media ID -> AniList list status; upgrade the old ID-only cache in place."""
@@ -176,32 +201,40 @@ def get_airings(ids: list[int], start: int, end: int) -> list[dict]:
 
 def webhook_request(method: str, url: str, payload: dict):
     for attempt in range(RETRIES):
+        RUN_METRICS["discord_requests"] += 1
         try:
             response = HTTP.request(method, url, json=payload, timeout=TIMEOUT)
         except requests.RequestException as exc:
+            RUN_METRICS["discord_errors"] += 1
             if attempt == RETRIES - 1:
                 logging.error("Discord request failed: %s", exc)
                 return None
+            RUN_METRICS["discord_retries"] += 1
             time.sleep(min(2 ** attempt, 16))
             continue
         if response.status_code in (200, 201):
+            RUN_METRICS["discord_successes"] += 1
             try:
                 return response.json()
             except ValueError:
                 return {}
         if response.status_code == 204:
+            RUN_METRICS["discord_successes"] += 1
             return {}
         if response.status_code == 429 or response.status_code >= 500:
+            RUN_METRICS["discord_errors"] += 1
+            if attempt < RETRIES - 1:
+                RUN_METRICS["discord_retries"] += 1
             try:
                 delay = max(float(response.headers.get("Retry-After", 0)), float(response.json().get("retry_after", 0)))
             except (ValueError, TypeError):
                 delay = min(2 ** attempt, 16)
             time.sleep(max(delay, min(2 ** attempt, 16)))
             continue
+        RUN_METRICS["discord_errors"] += 1
         logging.error("Discord HTTP %s: %s", response.status_code, response.text[:300])
         return None
     return None
-
 
 def alert_embed(airing: dict, kind: str) -> dict:
     labels = {"3h": "AIRING SOON", "1h": "1-HOUR WARNING", "30m": "30-MINUTE WARNING"}
@@ -334,30 +367,83 @@ def send_pending_intelligence_events(history: dict) -> int:
     return sent
 
 
-def save_statistics_and_report(entries: dict[int, str], airings: list[dict], history: dict, preferences: dict, now: int):
-    state = read_json(STATS_FILE, {})
-    if not isinstance(state, dict):
-        state = {}
-    stats = build_statistics(entries, airings, history, now, preferences)
-    state["latest_snapshot"] = stats
-    state["updated_at"] = int(now)
+def send_morning_catchup(stats_state: dict, schedule_history: dict, alert_history: dict, now: int, last_successful_run: int, current_airings: list[dict]) -> bool:
+    """Send exactly one overnight digest; retain a pending payload if Discord is unavailable."""
+    local = datetime.fromtimestamp(now, IST)
+    pending = stats_state.get("pending_morning_digest")
+    if not isinstance(pending, dict):
+        gap = now - int(last_successful_run or 0)
+        if not last_successful_run or gap < 6 * 3600 or not (10 <= local.hour < 22):
+            return False
+        if stats_state.get("last_morning_digest_date") == local.date().isoformat():
+            return False
+        items, missed = collect_overnight_airings(
+            schedule_history, alert_history, last_successful_run, now, current_airings=current_airings
+        )
+        pending = {
+            "date": local.date().isoformat(),
+            "from_at": int(last_successful_run),
+            "to_at": int(now),
+            "embed": morning_digest_embed(items, missed, last_successful_run, now),
+        }
+        stats_state["pending_morning_digest"] = pending
+        logging.info("Prepared morning catch-up: %d overnight episodes, %d without recorded reminders", len(items), missed)
 
-    if weekly_report_due(now, state):
+    result = webhook_request("POST", WEBHOOK + "?wait=true", {"embeds": [pending["embed"]]})
+    if result is None:
+        logging.warning("Morning catch-up delivery failed; digest remains queued for retry.")
+        return False
+    stats_state["last_morning_digest_date"] = pending["date"]
+    stats_state.pop("pending_morning_digest", None)
+    logging.info("Morning catch-up digest sent for %s", pending["date"])
+    return True
+
+
+def save_statistics_and_report(
+    entries: dict[int, str],
+    airings: list[dict],
+    history: dict,
+    preferences: dict,
+    now: int,
+    stats_state: dict,
+    reminders_sent: int,
+    intelligence_events_sent: int,
+    morning_digest_sent: bool,
+    calendar_sent: bool,
+):
+    stats = build_statistics(entries, airings, history, now, preferences)
+    stats_state["latest_snapshot"] = stats
+    update_delivery_analytics(
+        stats_state,
+        now,
+        RUN_METRICS,
+        reminders_sent,
+        intelligence_events_sent,
+        morning_digest_sent,
+        calendar_sent,
+    )
+    stats_state["updated_at"] = int(now)
+
+    # The weekly report includes the accumulated notification/API health totals.
+    report_stats = dict(stats)
+    report_stats["delivery_health"] = stats_state.get("delivery", {})
+
+    if weekly_report_due(now, stats_state):
         week_key = weekly_report_key(now)
-        result = webhook_request("POST", WEBHOOK + "?wait=true", {"embeds": [weekly_report_embed(stats, week_key)]})
+        result = webhook_request("POST", WEBHOOK + "?wait=true", {"embeds": [weekly_report_embed(report_stats, week_key)]})
         if result is not None:
-            state["last_weekly_report"] = week_key
-            reports = state.get("weekly_reports", [])
+            stats_state["last_weekly_report"] = week_key
+            reports = stats_state.get("weekly_reports", [])
             if not isinstance(reports, list):
                 reports = []
-            reports.append(stats)
-            state["weekly_reports"] = reports[-12:]
+            reports.append(report_stats)
+            stats_state["weekly_reports"] = reports[-12:]
             logging.info("Weekly anime report sent: %s", week_key)
         else:
             logging.warning("Weekly anime report was not delivered; it will be retried on the next run.")
-    write_json(STATS_FILE, state)
-    return stats
 
+    write_json(STATS_FILE, stats_state)
+    return stats
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s UTC | %(levelname)s | %(message)s")
@@ -365,6 +451,11 @@ def main():
         raise RuntimeError("Missing AniList username or DISCORD_AIRING_WEBHOOK secret")
 
     now = int(time.time())
+    stats_state = read_json(STATS_FILE, {})
+    if not isinstance(stats_state, dict):
+        stats_state = {}
+    last_successful_run = int(stats_state.get("updated_at", 0) or 0)
+
     entries = get_media_entries(now)
     preferences = normalize_preferences(read_json(PREFERENCES_FILE, DEFAULT_PREFERENCES))
     write_json(PREFERENCES_FILE, preferences)
@@ -378,22 +469,51 @@ def main():
         )
 
     alert_history = read_json(ALERT_FILE, {})
+    schedule_history = normalize_schedule_history(read_json(SCHEDULE_HISTORY_FILE, {}))
+
+    # Morning catch-up is prepared from last night's saved schedule snapshot before it is refreshed.
+    morning_digest_sent = send_morning_catchup(
+        stats_state, schedule_history, alert_history, now, last_successful_run, airings
+    )
+
     prune_alert_history(alert_history, sorted(entries), airings)
     reminders_sent = send_due_alerts(airings, alert_history, now)
     write_json(ALERT_FILE, alert_history)
 
-    schedule_history = normalize_schedule_history(read_json(SCHEDULE_HISTORY_FILE, {}))
     schedule_history = observe_schedules(schedule_history, airings, now)
     events_sent = send_pending_intelligence_events(schedule_history)
     write_json(SCHEDULE_HISTORY_FILE, schedule_history)
 
     update_daily_board(airings, now)
-    stats = save_statistics_and_report(entries, airings, schedule_history, preferences, now)
-    logging.info(
-        "HEALTH OK | list=%d | tracked=%d | next-7d=%d | reminders=%d | schedule-events=%d | next-24h=%d",
-        len(entries), len(tracked), len(airings), reminders_sent, events_sent, stats["upcoming_next_24h"],
-    )
 
+    calendar_sent = False
+    if weekly_calendar_due(now, stats_state):
+        week_key = weekly_calendar_key(now)
+        result = webhook_request("POST", WEBHOOK + "?wait=true", {"embeds": [weekly_calendar_embed(airings, now)]})
+        if result is not None:
+            stats_state["last_weekly_calendar"] = week_key
+            calendar_sent = True
+            logging.info("Weekly calendar sent: %s", week_key)
+        else:
+            logging.warning("Weekly calendar was not delivered; it will be retried on the next run.")
+
+    stats = save_statistics_and_report(
+        entries,
+        airings,
+        schedule_history,
+        preferences,
+        now,
+        stats_state,
+        reminders_sent,
+        events_sent,
+        morning_digest_sent,
+        calendar_sent,
+    )
+    logging.info(
+        "HEALTH OK | list=%d | tracked=%d | next-7d=%d | reminders=%d | schedule-events=%d | morning-digest=%s | calendar=%s | anilist-errors=%d | discord-errors=%d",
+        len(entries), len(tracked), len(airings), reminders_sent, events_sent,
+        morning_digest_sent, calendar_sent, RUN_METRICS["anilist_errors"], RUN_METRICS["discord_errors"],
+    )
 
 if __name__ == "__main__":
     main()

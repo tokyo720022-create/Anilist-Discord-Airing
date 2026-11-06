@@ -1,6 +1,6 @@
-# Tokyo Airing Radar v2.1 — Anime Intelligence
+# Tokyo Airing Radar v2.2 — Overnight Intelligence
 
-AniList airing alerts for **Orewatokyo**, delivered to Discord, with schedule intelligence, configurable anime categories, and weekly reports.
+AniList airing alerts for **Orewatokyo**, delivered to Discord, with schedule intelligence, configurable anime categories, overnight catch-up, a weekly calendar, and delivery analytics.
 
 ## Features
 
@@ -9,27 +9,26 @@ AniList airing alerts for **Orewatokyo**, delivered to Discord, with schedule in
 - Batches up to 10 alert embeds per Discord webhook request.
 - Publishes one daily schedule board in India Standard Time and edits that message on later runs.
 - Detects schedule delays, earlier reschedules, schedule record replacements, missing schedules (only after three consecutive absent checks), and restored schedules.
-- Preserves pending schedule-change notifications so temporary Discord delivery failures can be retried.
+- **Morning catch-up digest:** after the 10 PM–10 AM break, reports episodes that the last saved schedule expected to air overnight and indicates whether any reminder was recorded as delivered. Failed digest delivery is retained for retry.
+- **Weekly calendar:** posts a seven-day schedule grouped by IST date once each Monday.
+- **Notification and API analytics:** cumulative AniList/Discord request counts, errors, retries, delivered reminders/events, catch-up and calendar posts, plus the last 100 run summaries. Weekly report includes health totals.
+- **Preferences control form:** configure Favourite, Muted and AniList status filters through GitHub Actions without editing JSON manually.
 - Supports **Favourite**, **Watching**, **Muted**, and **Other** categories. Watching is derived from AniList `CURRENT` / `REPEATING` status; favourite and muted IDs are manually configured.
-- Filters the tracked list by AniList statuses: `CURRENT`, `PLANNING`, `COMPLETED`, `DROPPED`, `PAUSED`, and `REPEATING`.
-- Stores current anime statistics and sends a weekly intelligence report on Mondays (Asia/Kolkata).
-- Uses atomic JSON writes and keeps the pre-existing alert history, cache IDs, and daily board reference.
-- Sends a GitHub Actions failure notification to Discord.
+- Uses atomic JSON writes and keeps the existing alert history, cache IDs, and daily board reference.
 
-## Configure categories and list filtering
+## Preferences control panel (no JSON editing)
 
-Edit `anime_preferences.json`:
+Open **GitHub → Actions → Tokyo Airing Radar Preferences → Run workflow** on `main`.
 
-```json
-{
-  "version": 1,
-  "favourite_media_ids": [21, 235],
-  "muted_media_ids": [8687],
-  "list_status_filter": ["CURRENT", "PLANNING", "COMPLETED", "REPEATING"]
-}
-```
+Choose one action:
+- `add_favourite` / `remove_favourite`
+- `add_muted` / `remove_muted`
+- `set_status_filter` — supply comma-separated values such as `CURRENT,PLANNING,COMPLETED`
+- `reset_status_filter` — restore all six AniList statuses
 
-Use AniList media IDs in the two ID lists. Favourite entries bypass the list-status filter; muted entries always suppress alerts. If an ID appears in both lists, **Muted wins**. Watching is automatic for AniList statuses `CURRENT` and `REPEATING`. The default status filter includes all six statuses, preserving the previous all-list tracking behaviour.
+For favourite/mute actions, enter the numeric AniList media ID. The workflow validates the input and commits the changed preference file to `main`; it does not run the airing bot or send Discord messages.
+
+**Discord interaction note:** the configured Discord webhook can post messages but cannot receive slash commands or button clicks. This release therefore provides the control form in GitHub Actions. A native Discord command/button panel would require a separate Discord bot application/token and interaction endpoint.
 
 ## GitHub Actions secrets
 
@@ -40,12 +39,12 @@ Use AniList media IDs in the two ID lists. Favourite entries bypass the list-sta
 
 The live engine runs every 15 minutes from **10:00 AM through 9:45 PM India Standard Time (IST)**. It rests from **10:00 PM until 10:00 AM IST** (a 12-hour break).
 
-GitHub Actions cron uses UTC, so the schedule is:
+GitHub Actions cron uses UTC:
 - `30,45 4 * * *` — 10:00 and 10:15 AM IST.
 - `*/15 5-15 * * *` — 10:30 AM through 9:15 PM IST.
 - `0,15 16 * * *` — 9:30 and 9:45 PM IST.
 
-Manual workflow runs are also blocked from executing the live bot outside 10:00–22:00 IST. Pull requests and pushes to `main` run compile checks and unit tests only; they do not send Discord messages or execute the live radar. Scheduled GitHub workflows can be delayed by platform load.
+Manual runs are blocked from executing the live bot outside 10:00–22:00 IST. Pull requests and pushes to `main` run compile checks and unit tests only; they do not send Discord messages or execute the live radar. Scheduled GitHub workflows can be delayed by platform load.
 
 ## State files
 
@@ -54,16 +53,17 @@ Manual workflow runs are also blocked from executing the live bot outside 10:00�
 - `daily_board.json` — Discord daily board message ID/date.
 - `anime_preferences.json` — favourite/muted media IDs and allowed AniList list statuses.
 - `schedule_history.json` — observed schedule snapshots, change events, and pending Discord notifications.
-- `anime_stats.json` — latest statistics and the last 12 successful weekly report snapshots.
+- `anime_stats.json` — latest statistics, delivery counters, pending morning digest (when needed), weekly reports/calendars, and bounded run history.
 
-**Migration / preservation:** Existing `db_anime_airing.json`, `airing_cache.json`, and `daily_board.json` are not reset. The cache is refreshed in its existing file with the old `media_ids` list retained. Alert history continues to accept its original string reminder values. Do not delete these files when updating the repository.
+**Migration / preservation:** Existing `db_anime_airing.json`, `airing_cache.json`, and `daily_board.json` are preserved. The cache retains the legacy `media_ids` array while storing statuses. Alert history continues to accept its original string reminder values. Do not delete these files when updating the repository.
 
-## Run locally
+## Local development
 
 ```bash
 python -m pip install -r requirements.txt
+python -m py_compile airing_alerts.py anime_intelligence.py radar_v22.py manage_preferences.py
 python -m unittest discover -s tests -v
 python airing_alerts.py
 ```
 
-Run manually from **Actions → Tokyo Airing Radar → Run workflow** on `main`. GitHub's operating-hours guard still applies to the live workflow.
+Run the bot manually from **Actions → Tokyo Airing Radar → Run workflow** on `main`. The operating-hours guard still applies.
