@@ -39,10 +39,16 @@ class OvernightDigestTests(unittest.TestCase):
 
     def test_morning_digest_is_single_embed_and_handles_empty_night(self):
         now = int(datetime(2026, 11, 7, 10, 0, tzinfo=ZoneInfo("Asia/Kolkata")).timestamp())
-        embed = morning_digest_embed([], 0, now - 12 * 3600, now)
+        upcoming = [{"media_id": 21, "episode": 5, "title": "Today's Anime", "airing_at": now + 3600}]
+        changes = [{"type": "delay", "title": "Shifted Anime", "episode": 2}]
+        embed = morning_digest_embed([], 0, now - 12 * 3600, now, upcoming_today=upcoming, schedule_changes=changes)
         self.assertIn("MORNING CATCH-UP", embed["author"]["name"])
+        self.assertIn("Today's Anime", embed["fields"][3]["value"])
+        self.assertIn("Shifted Anime", embed["fields"][4]["value"])
         self.assertEqual(embed["fields"][1]["value"], "0")
         self.assertIn("Nothing", embed["description"])
+        self.assertEqual(len(embed["fields"]), 5)
+        self.assertIn("UP NEXT TODAY", [field["name"] for field in embed["fields"]])
 
 
 class WeeklyCalendarTests(unittest.TestCase):
