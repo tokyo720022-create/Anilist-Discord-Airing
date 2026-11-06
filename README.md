@@ -36,11 +36,16 @@ Use AniList media IDs in the two ID lists. Favourite entries bypass the list-sta
 - `DISCORD_AIRING_WEBHOOK` — required Discord channel webhook.
 - `ANILIST_TARGET_TOKEN` — optional; only needed if the AniList list is not public.
 
-## Schedule
+## Operating hours
 
-The workflow checks every 15 minutes at minutes 7, 22, 37 and 52 UTC (`7,22,37,52 * * * *`). The daily schedule board and weekly report use `Asia/Kolkata`. Scheduled GitHub workflows can be delayed by platform load.
+The live engine runs every 15 minutes from **10:00 AM through 9:45 PM India Standard Time (IST)**. It rests from **10:00 PM until 10:00 AM IST** (a 12-hour break).
 
-Pull requests and pushes to `main` run compile checks and unit tests only; they do not send Discord messages or execute the live radar. Scheduled and manual runs on `main` execute the bot and persist state.
+GitHub Actions cron uses UTC, so the schedule is:
+- `30,45 4 * * *` — 10:00 and 10:15 AM IST.
+- `*/15 5-15 * * *` — 10:30 AM through 9:15 PM IST.
+- `0,15 16 * * *` — 9:30 and 9:45 PM IST.
+
+Manual workflow runs are also blocked from executing the live bot outside 10:00–22:00 IST. Pull requests and pushes to `main` run compile checks and unit tests only; they do not send Discord messages or execute the live radar. Scheduled GitHub workflows can be delayed by platform load.
 
 ## State files
 
@@ -61,4 +66,4 @@ python -m unittest discover -s tests -v
 python airing_alerts.py
 ```
 
-Run manually from **Actions → Tokyo Airing Radar → Run workflow** on `main`.
+Run manually from **Actions → Tokyo Airing Radar → Run workflow** on `main`. GitHub's operating-hours guard still applies to the live workflow.
