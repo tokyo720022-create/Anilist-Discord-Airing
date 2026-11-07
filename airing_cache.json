@@ -1,6 +1,6 @@
 {
   "username": "Orewatokyo",
-  "updated_at": 1793950234,
+  "updated_at": 1794050131,
   "media_ids": [
     20,
     21,
@@ -832,7 +832,8 @@
     218931,
     219063,
     219080,
-    219265
+    219265,
+    219679
   ],
   "media_entries": [
     {
@@ -2417,7 +2418,7 @@
     },
     {
       "media_id": 163142,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 163329,
@@ -3685,7 +3686,7 @@
     },
     {
       "media_id": 203275,
-      "status": "PLANNING"
+      "status": "CURRENT"
     },
     {
       "media_id": 203473,
@@ -4081,7 +4082,7 @@
     },
     {
       "media_id": 216895,
-      "status": "PLANNING"
+      "status": "CURRENT"
     },
     {
       "media_id": 216926,
@@ -4157,6 +4158,10 @@
     },
     {
       "media_id": 219265,
+      "status": "PLANNING"
+    },
+    {
+      "media_id": 219679,
       "status": "PLANNING"
     }
   ]
