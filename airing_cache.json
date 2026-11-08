@@ -1,6 +1,6 @@
 {
   "username": "Orewatokyo",
-  "updated_at": 1794050131,
+  "updated_at": 1794137234,
   "media_ids": [
     20,
     21,
@@ -2410,7 +2410,7 @@
     },
     {
       "media_id": 162890,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 163076,
@@ -2578,7 +2578,7 @@
     },
     {
       "media_id": 170936,
-      "status": "PLANNING"
+      "status": "DROPPED"
     },
     {
       "media_id": 170942,
@@ -2798,7 +2798,7 @@
     },
     {
       "media_id": 179302,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 179344,
@@ -2966,7 +2966,7 @@
     },
     {
       "media_id": 183965,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 183984,
@@ -3002,7 +3002,7 @@
     },
     {
       "media_id": 185116,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 185211,
@@ -3066,7 +3066,7 @@
     },
     {
       "media_id": 186161,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 186190,
@@ -3082,7 +3082,7 @@
     },
     {
       "media_id": 186524,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 186541,
@@ -3090,7 +3090,7 @@
     },
     {
       "media_id": 186621,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 186736,
@@ -3114,7 +3114,7 @@
     },
     {
       "media_id": 186794,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 186822,
@@ -3126,7 +3126,7 @@
     },
     {
       "media_id": 186914,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 187062,
@@ -3150,7 +3150,7 @@
     },
     {
       "media_id": 187331,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 187402,
@@ -3346,7 +3346,7 @@
     },
     {
       "media_id": 194884,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 195153,
@@ -3422,7 +3422,7 @@
     },
     {
       "media_id": 196553,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 196750,
