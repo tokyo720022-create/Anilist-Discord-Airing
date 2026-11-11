@@ -1,6 +1,6 @@
 {
   "username": "Orewatokyo",
-  "updated_at": 1794315190,
+  "updated_at": 1794398553,
   "media_ids": [
     20,
     21,
@@ -231,6 +231,7 @@
     107067,
     107136,
     107201,
+    107444,
     107693,
     107871,
     107956,
@@ -1753,6 +1754,10 @@
       "status": "COMPLETED"
     },
     {
+      "media_id": 107444,
+      "status": "PLANNING"
+    },
+    {
       "media_id": 107693,
       "status": "COMPLETED"
     },
@@ -2674,7 +2679,7 @@
     },
     {
       "media_id": 175019,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 175450,
@@ -3250,7 +3255,7 @@
     },
     {
       "media_id": 189987,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 190054,
@@ -3458,7 +3463,7 @@
     },
     {
       "media_id": 197715,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 197731,
@@ -3582,7 +3587,7 @@
     },
     {
       "media_id": 199748,
-      "status": "PLANNING"
+      "status": "COMPLETED"
     },
     {
       "media_id": 200294,
@@ -3630,7 +3635,7 @@
     },
     {
       "media_id": 201817,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 201903,
@@ -3758,7 +3763,7 @@
     },
     {
       "media_id": 206166,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 206401,
@@ -3790,7 +3795,7 @@
     },
     {
       "media_id": 206951,
-      "status": "CURRENT"
+      "status": "COMPLETED"
     },
     {
       "media_id": 207141,
