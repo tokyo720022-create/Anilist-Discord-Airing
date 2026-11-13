@@ -1,11 +1,11 @@
 {
   "latest_snapshot": {
-    "generated_at": 1794488780,
-    "list_anime": 833,
-    "tracked_anime": 833,
+    "generated_at": 1794573066,
+    "list_anime": 834,
+    "tracked_anime": 834,
     "status_counts": {
       "COMPLETED": 382,
-      "CURRENT": 83,
+      "CURRENT": 84,
       "DROPPED": 7,
       "PAUSED": 13,
       "PLANNING": 348,
@@ -13,12 +13,12 @@
     },
     "category_counts": {
       "favourite": 0,
-      "watching": 83,
+      "watching": 84,
       "muted": 0,
       "other": 750
     },
-    "upcoming_next_24h": 7,
-    "upcoming_next_7d": 61,
+    "upcoming_next_24h": 11,
+    "upcoming_next_7d": 62,
     "schedule_events_last_7d": {
       "delay": 1,
       "moved_earlier": 0,
@@ -27,20 +27,20 @@
       "restored": 0
     }
   },
-  "updated_at": 1794488780,
+  "updated_at": 1794573066,
   "delivery": {
-    "anilist_requests": 126,
+    "anilist_requests": 146,
     "anilist_errors": 0,
     "anilist_retries": 0,
-    "discord_requests": 24,
-    "discord_successes": 24,
+    "discord_requests": 27,
+    "discord_successes": 27,
     "discord_errors": 0,
     "discord_retries": 0,
-    "reminders_sent": 23,
+    "reminders_sent": 28,
     "intelligence_events_sent": 2,
-    "morning_digests_sent": 6,
+    "morning_digests_sent": 7,
     "weekly_calendars_sent": 1,
-    "last_run_at": 1794488780,
+    "last_run_at": 1794573066,
     "last_run_api_errors": 0,
     "last_run_discord_errors": 0
   },
@@ -132,9 +132,20 @@
       "intelligence_events_sent": 1,
       "morning_digest_sent": true,
       "weekly_calendar_sent": false
+    },
+    {
+      "at": 1794573066,
+      "anilist_requests": 20,
+      "anilist_errors": 0,
+      "discord_requests": 3,
+      "discord_errors": 0,
+      "reminders_sent": 5,
+      "intelligence_events_sent": 0,
+      "morning_digest_sent": true,
+      "weekly_calendar_sent": false
     }
   ],
-  "last_morning_digest_date": "2026-11-12",
+  "last_morning_digest_date": "2026-11-13",
   "last_weekly_calendar": "2026-W46",
   "last_weekly_report": "2026-W46",
   "weekly_reports": [

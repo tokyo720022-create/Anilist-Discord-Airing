@@ -1,6 +1,6 @@
 {
   "username": "Orewatokyo",
-  "updated_at": 1794488780,
+  "updated_at": 1794573066,
   "media_ids": [
     20,
     21,
@@ -309,6 +309,7 @@
     139092,
     139095,
     139518,
+    139587,
     140960,
     141208,
     141391,
@@ -2064,6 +2065,10 @@
     {
       "media_id": 139518,
       "status": "COMPLETED"
+    },
+    {
+      "media_id": 139587,
+      "status": "CURRENT"
     },
     {
       "media_id": 140960,
